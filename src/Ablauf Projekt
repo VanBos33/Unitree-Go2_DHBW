@@ -1,1 +1,24 @@
-test
+Schritte
+
+Vorbereitung:
+
+- Programme einrichten
+	- Raspberry Pie Imager zur Installation Betriebssystem
+	- ROS2
+	- Programm für Dashboard
+  - SDK Verbindung Rasberry Pi zu Go2
+	- KI für Bilderkennung
+		Computer Vision Models => YOLOv8 / YOLOv11
+- Betriebssystem finden (Ubuntu / Linux)
+
+Bilderkennung KI:
+Anleitung Bilder labeln
+https://colab.research.google.com/github/EdjeElectronics/Train-and-Deploy-YOLO-Models/blob/main/Train_YOLO_Models.ipynb
+- Bilder labeln mit Browsertool Roboflow
+- Bilder bei Google Colab hochladen und Modelldatei erstellen
+- Grafik und KI Bibliotheken auf dem Rasperry Pie installieren
+
+
+
+
+Navigation:
