@@ -1,0 +1,125 @@
+=============================================================================
+
+PROJEKTSTAND: Autonome Navigation - Unitree Go 2 Edu
+
+Datum: 25.10.2026
+
+Verantwortlich: Student 3 (Navigation / SLAM)
+
+ROS-Version: ROS 2 Jazzy (Raspberry Pi 5)
+
+=============================================================================
+
+
+
+1. ZUSAMMENFASSUNG DES AKTUELLEN STANDS
+
+Der Navigations-Stack (Nav2) und die Kartierung (SLAM Toolbox) wurden auf 
+
+dem Raspberry Pi erfolgreich eingerichtet und konfiguriert. Das System 
+
+wartet aktuell auf die Anbindung der echten Hardware-Sensordaten durch die 
+
+Systemarchitektur.
+
+
+
+2. ABGESCHLOSSENE MEILENSTEINE (STUDENT 3)
+
+[X] Prüfung des Git-Repositories: Das aktuelle Repo enthielt nur Simulations-
+
+    Daten (CHAMP, Gazebo). Ein Wechsel auf Hardware-Konfiguration war nötig.
+
+[X] Erstellung des Navigations-Pakets: Ein neues ROS 2 Paket namens 
+
+    'unitree_go2_navigation' wurde lokal auf dem Pi (via SSH/Terminal) 
+
+    erstellt und in den Workspace integriert.
+
+[X] Konfiguration Nav2 & SLAM:
+
+    - Standard-Parameterdateien ('nav2_params.yaml', 'mapper_params_online_async.yaml')
+
+      wurden in das Paket kopiert.
+
+    - Der 'robot_radius' (Footprint) wurde an die rechteckigen Maße des 
+
+      Unitree Go 2 angepasst (0.80m x 0.50m Box), um Kollisionen zu vermeiden.
+
+[X] Erstellung des Launch-Files: 'navigation.launch.py' wurde geschrieben, 
+
+    um den Nav2-Stack und die SLAM Toolbox gleichzeitig mit den angepassten 
+
+    Parametern zu starten.
+
+[X] Python-API / Simple Commander: Ein Steuerungsskript 
+
+    ('scripts/simple_commander.py') wurde implementiert. Dieses dient als 
+
+    fertige Schnittstelle (Wrapper) für die State Machine (Student 4).
+
+[X] Build & Git: Die 'CMakeLists.txt' wurde um alle neuen Ordner und Skripte 
+
+    erweitert. Das Paket baut fehlerfrei und wurde ins GitHub-Repo gepusht.
+
+
+
+3. STRUKTUR DES NEUEN PAKETS ('unitree_go2_navigation')
+
+- /config: Enthält die .yaml-Konfigurationsdateien für SLAM und Nav2.
+
+- /launch: Enthält 'navigation.launch.py' für den Systemstart.
+
+- /scripts: Enthält 'simple_commander.py' für die einfache Wegpunkt-Steuerung.
+
+- /maps: Vorbereitet für die spätere Speicherung der Raumkarte.
+
+
+
+4. OFFENE ABHÄNGIGKEITEN (BLOCKER)
+
+Damit die Navigation in der Praxis getestet werden kann, müssen folgende 
+
+Punkte von anderen Teammitgliedern abgeschlossen werden:
+
+
+
+-> An Student 1 (Architektur / Hardware-Brücke):
+
+   - Offizielles Unitree ROS 2 SDK (oder Community-Wrapper wie go2_ros2_sdk) 
+
+     muss auf dem Pi kompiliert werden (ggf. unter ROS 2 Humble via Docker, 
+
+     falls Jazzy inkompatibel).
+
+   - CycloneDDS muss als Middleware konfiguriert sein.
+
+   - Es müssen zwingend die Topics '/scan' (2D-LaserScan) und '/tf' 
+
+     (Koordinatenbaum: odom -> base_link -> utlidar_lidar) bereitgestellt werden.
+
+
+
+-> An Student 4 (State Machine):
+
+   - Aktuellen Git-Stand pullen.
+
+   - Die Logik aus 'scripts/simple_commander.py' (Warten auf 'SUCCEEDED') 
+
+     in die zentrale State Machine übernehmen, um den Trigger für die 
+
+     Bilderkennung (Student 2) zu setzen.
+
+
+
+5. NÄCHSTE SCHRITTE (SOBALD HARDWARE-DATEN FLIESSEN)
+
+1. System per Launch-File starten.
+
+2. Roboter manuell durch den Raum steuern, um die SLAM-Karte aufzubauen.
+
+3. Karte als .yaml-Datei speichern und im Ordner /maps ablegen.
+
+4. Ersten autonomen Testlauf mit dem 'simple_commander.py' Skript durchführen.
+
+=============================================================================
