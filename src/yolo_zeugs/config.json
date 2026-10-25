@@ -1,0 +1,7 @@
+{
+  "model_path": "best.onnx",
+  "conf_threshold": 0.35,
+  "required_frames": 3,
+  "rtsp_url": "rtsp://192.168.123.13:8554/live/test",
+  "log_to_file": true
+}
