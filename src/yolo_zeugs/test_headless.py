@@ -6,7 +6,7 @@ model = YOLO("best.onnx")
 
 # 2. Inferenz auf ein Bild oder Video ausführen
 # (Ersetzen Sie 'test.jpg' durch ein Bild in Ihrem Ordner oder einer URL)
-results = model("IMG_1476.JPEG", conf=0.25)
+results = model("IMG_1944.JPEG", conf=0.20)
 
 # 3. Ergebnisse im Terminal ausgeben
 for result in results:
