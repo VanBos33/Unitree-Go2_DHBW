@@ -177,6 +177,32 @@ source install/setup.bash
 
 ## 6. Betrieb: alles starten
 
+### 6.1 Einfachster Weg: `go2` mit einem Fenster
+
+Alle Programme laufen auf dem Pi in **einer tmux-Sitzung** mit Tabs. Am Mac gibt es dafür nur **ein Fenster**.
+
+- **Mac:** Doppelklick auf `Go2.command` auf dem Schreibtisch. Das verbindet, startet alles (falls nötig) und zeigt die Sitzung. Unten in der Tab-Leiste klickt man zwischen `0:Status`, `1:Bridge`, `2:Sport`, `3:cmd_vel`, `4:Nav2`, `5:Foxglove`, `6:Mission`, `7:Kamera` und `8:Befehle` hin und her.
+- **Mac:** Doppelklick auf `Go2 Stopp.command` beendet alles.
+- **Pi (z. B. im Tab `8:Befehle`):**
+
+| Befehl | Wirkung |
+|---|---|
+| `go2 start` | prüft den Ping zum Hund, startet alle 7 Programme in der richtigen Reihenfolge und wartet jeweils auf die Bereit-Meldung |
+| `go2 status` | Übersicht mit ✅/❌ (dauerhaft sichtbar im Tab `0:Status`) |
+| `go2 stop` | beendet alles in umgekehrter Reihenfolge, hängende Programme nach 15 s erzwungen |
+| `go2 restart` | stop + start, z. B. nachdem der Hund aus war |
+| `go2 neu mission` | nur ein Programm neu starten (`bridge`, `sport`, `cmd_vel`, `nav2`, `foxglove`, `mission`, `kamera`) |
+| `go2 reset` | nach dem Setzen der Startpose: Costmaps leeren |
+| `go2 abbruch` | laufende Fahrt abbrechen |
+| `go2 sitz` / `go2 steh` | Hund von Hand hinsetzen / aufstehen lassen |
+| `go2 oeffnen` | in die Sitzung zurückkehren |
+
+Schließt man das Mac-Fenster oder bricht Tailscale ab, **läuft auf dem Pi alles weiter**. Mit **Strg+b, dann d** verlässt man die Sitzung absichtlich, ohne etwas zu beenden. Weil die Maus in tmux aktiv ist, markiert man Text im Mac-Terminal mit gedrückter **fn-Taste**.
+
+Einrichtung (einmalig): `go2.sh` liegt in `src/go2_bridge/`. Auf dem Pi `ln -sf ~/unitree_ws/src/go2_bridge/go2.sh ~/.local/bin/go2` und `chmod +x ~/unitree_ws/src/go2_bridge/go2.sh`. Am Mac einen SSH-Schlüssel und den Kurznamen `hund` in `~/.ssh/config` anlegen, siehe [`src/go2_bridge/README.md`](src/go2_bridge/README.md#9-go2-ein-fenster-statt-vieler).
+
+### 6.2 Von Hand (ohne `go2`)
+
 Jedes Programm läuft in einem **eigenen Terminal-Fenster am Mac**, das per `ssh fynn@100.121.161.1` mit dem Pi verbunden ist. Reihenfolge einhalten.
 
 **Vorher:** Hund einschalten, warten bis er steht, dann `ping -c 3 192.168.123.161`.
@@ -189,9 +215,10 @@ Jedes Programm läuft in einem **eigenen Terminal-Fenster am Mac**, das per `ssh
 | 4 | Nav2 | `source ~/unitree_ws/src/go2_bridge/go2_env.sh`<br>`ros2 launch ~/unitree_ws/src/go2_bridge/go2_nav2.launch.py` | `Managed nodes are active` |
 | 5 | Foxglove-Bridge | `source ~/unitree_ws/src/go2_bridge/go2_env.sh`<br>`ros2 launch foxglove_bridge foxglove_bridge_launch.xml` | `Server listening on port 8765` |
 | 6 | Mission | `source ~/unitree_ws/src/go2_bridge/go2_env.sh`<br>`python3 ~/unitree_ws/src/go2_bridge/go2_mission.py` | `Bereit. Ziele auf /mission_goal` |
-| 7 | frei | für Reset-Skript, Abbruch, Sitz-Test, `git` | – |
+| 7 | Kamera (nur Video, KI auf dem Mac) | `cd ~/unitree_ws/src/yolo_zeugs && python3 go2_tuer_stream.py auto --ohne-ki` (**ohne** `go2_env.sh`!) | Startmeldung mit Port `8080` |
+| 8 | frei | für Reset-Skript, Abbruch, Sitz-Test, `git` | – |
 
-**Beenden:** in umgekehrter Reihenfolge mit **control + C** (6 → 1). Hängt ein Programm, aus einem freien Pi-Fenster zwangsweise beenden, z. B. `pkill -9 -f go2_cmd_vel.py` oder `pkill -9 -f go2_mission.py`.
+**Beenden:** in umgekehrter Reihenfolge mit **control + C** (7 → 1). Hängt ein Programm, aus einem freien Pi-Fenster zwangsweise beenden, z. B. `pkill -9 -f go2_cmd_vel.py` oder `pkill -9 -f go2_mission.py`.
 
 **Nach dem Ausschalten des Hundes** melden alle ROS-Programme `ddsi_udp_conn_write … failed with retcode -1`. Dann alles beenden, den Hund wieder einschalten, den Ping prüfen und alles neu starten. In jedem Fenster holt die **Pfeil-nach-oben-Taste** den letzten Befehl zurück.
 
@@ -340,3 +367,4 @@ git push
 5. Fenstererkennung an die Mission koppeln: Nach dem Hinsetzen am Fenster ein Bild auswerten und den Zustand melden.
 6. Dashboard-Live-Version über rosbridge.
 7. Steuer-Topic `/mission_cmd` (sit, stand, cancel), damit sich der Hund ohne Terminal bedienen lässt.
+8. Für die Vorführung: `go2 start` per systemd automatisch beim Hochfahren des Pi ausführen.

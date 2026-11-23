@@ -17,6 +17,7 @@ Der Ordner ist **kein colcon-Paket**. Alle Skripte werden direkt mit `python3` b
 
 | Datei | Typ | Zweck |
 |---|---|---|
+| `go2.sh` | Shell | **Ein Befehl für alles:** startet/überwacht/beendet alle Programme in einer tmux-Sitzung mit Tabs (Abschnitt 9) |
 | `go2_env.sh` | Shell | Umgebung für ROS ↔ Go2. **In jedem ROS-Terminal zuerst `source`n** (nicht für den Sport-Sender). |
 | `go2_bridge.launch.py` | Launch | Startet statischen TF `base_link → utlidar_lidar`, `go2_odom_tf.py` und `go2_scan_accum.py` |
 | `go2_odom_tf.py` | Node | `/utlidar/robot_odom` → TF `odom → base_link` |
@@ -341,3 +342,59 @@ rviz2 -d ~/unitree_ws/src/go2_bridge/go2.rviz
 ```
 
 Bei LaserScan und PointCloud2 `Reliability Policy = Best Effort`, bei `/map` Durability `Transient Local`. Über SSH ist die Foxglove-App die bessere Wahl.
+
+---
+
+## 9. `go2`: ein Fenster statt vieler
+
+`go2.sh` startet alle Programme in einer tmux-Sitzung namens `go2`. Jedes Programm bekommt einen Tab, und am Mac braucht man nur noch ein Fenster.
+
+| Tab | Inhalt | mit `go2_env.sh` | „bereit“, wenn im Log steht |
+|---|---|---|---|
+| `0:Status` | `go2 status` alle 3 s | – | – |
+| `1:Bridge` | `ros2 launch go2_bridge.launch.py accum_window:=0.25` | ja | `Strahlen mit Treffer` |
+| `2:Sport` | `python3 go2_sport_sender.py` | **nein** (Unitree-SDK) | `SportClient bereit` |
+| `3:cmd_vel` | `python3 go2_cmd_vel.py` | ja | `Bereit: /cmd_vel` |
+| `4:Nav2` | `ros2 launch go2_nav2.launch.py` | ja | `Managed nodes are active` |
+| `5:Foxglove` | `ros2 launch foxglove_bridge foxglove_bridge_launch.xml` | ja | `listening` bzw. `8765` |
+| `6:Mission` | `python3 go2_mission.py` | ja | `Bereit. Ziele` |
+| `7:Kamera` | `python3 ../yolo_zeugs/go2_tuer_stream.py auto --ohne-ki` | **nein** (Unitree-SDK) | `8080` |
+| `8:Befehle` | freie Shell mit geladener `go2_env.sh` | ja | – |
+
+Die tmux-Sitzung startet mit einer **leeren Umgebung** (`env -i`). So erben Sport-Sender und Kamera keine ROS-Variablen, selbst wenn `go2 start` aus einer Shell mit geladener `go2_env.sh` aufgerufen wird.
+
+**Befehle:** `go2 start`, `go2 stop`, `go2 restart`, `go2 status`, `go2 oeffnen`, `go2 neu mission` (oder `bridge`, `sport`, `cmd_vel`, `nav2`, `foxglove`, `kamera`), `go2 reset`, `go2 abbruch`, `go2 sitz`, `go2 steh`, `go2 hilfe`.
+
+**Beenden:** Erst Strg+C an das Programm, nach 15 s ohne Ende wird der ganze Prozessbaum mit `kill -9` beendet.
+
+### Einrichtung auf dem Pi (einmalig)
+
+```bash
+chmod +x ~/unitree_ws/src/go2_bridge/go2.sh
+mkdir -p ~/.local/bin
+ln -sf ~/unitree_ws/src/go2_bridge/go2.sh ~/.local/bin/go2
+sudo apt install -y tmux
+```
+
+### Einrichtung am Mac (einmalig, im Mac-Terminal)
+
+```bash
+# 1. SSH-Schlüssel erzeugen (falls noch keiner da ist) und auf den Pi kopieren – danach kein Passwort mehr
+[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+ssh-copy-id -i ~/.ssh/id_ed25519.pub fynn@100.121.161.1
+
+# 2. Kurzname "hund" anlegen
+cat >> ~/.ssh/config <<'CONF'
+
+Host hund
+  HostName 100.121.161.1
+  User fynn
+  ServerAliveInterval 15
+  ServerAliveCountMax 4
+CONF
+
+# 3. Test: muss ohne Passwort "Rasp-Pi-5-Hund" ausgeben
+ssh hund hostname
+```
+
+Die Doppelklick-Dateien `Go2.command` und `Go2 Stopp.command` liegen auf dem Schreibtisch des MacBooks. Sie rufen `ssh -t hund 'bash ~/unitree_ws/src/go2_bridge/go2.sh oeffnen'` bzw. `… stop` auf. Gibt es den Kurznamen `hund` nicht, nehmen sie direkt `fynn@100.121.161.1`.

@@ -254,7 +254,10 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        node.turn(0.0)
+        try:
+            node.turn(0.0)
+        except Exception:
+            pass                     # nach Strg+C ist der ROS-Kontext schon zu
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
