@@ -1,3 +1,16 @@
+> ## Hinweis für das DHBW-Projekt (Stand 23.11.2026)
+>
+> Dieser Ordner ist eine **unveränderte Kopie des Fremdprojekts** [RobInLabUJI/unitree_go2_ros2_jazzy](https://github.com/RobInLabUJI/unitree_go2_ros2_jazzy) (CHAMP-Regler, URDF des Go2, Gazebo-Harmonic-Welten). Er dient **nur der Simulation**.
+>
+> - Die Launch-Dateien `unitree_go2_sim/launch/unitree_go2_launch.py` und `unitree_go2_launch_TI.py` starten einen **virtuellen** Go2 in Gazebo. Einen Treiber für den echten Hund enthält das Paket nicht.
+> - Am echten Go2 EDU sendet der Hund seine Daten direkt per DDS über das LAN-Kabel. TF, `/scan`, Nav2 und die Fahrbefehle laufen über [`../go2_bridge`](../go2_bridge/README.md).
+> - Nützlich bleibt das URDF (`unitree_go2_description/urdf/`) zur Visualisierung. Die Einbaulage des L1-LiDAR für den statischen TF `base_link → utlidar_lidar` in `go2_bridge.launch.py` stammt dagegen aus Unitrees eigenem Paket `go2_description` (`radar_joint`), nicht aus diesem Ordner.
+> - Das Paket wird beim `colcon build` im Workspace mitgebaut. Für die Simulation sind zusätzlich Gazebo Harmonic und die unten genannten Pakete nötig.
+>
+> Die folgende englische Beschreibung stammt aus dem Originalprojekt.
+
+---
+
 # Unitree Go2 ROS2
 
 <p align="center">

@@ -1,3 +1,14 @@
 build/
 install/
 log/
+
+# Python
+__pycache__/
+*.pyc
+
+# YOLO-Modelle bleiben lokal (per scp kopieren, siehe src/yolo_zeugs/README.md)
+*.onnx
+*.pt
+
+# Ausgaben von go2_integration.py
+src/yolo_zeugs/output/
