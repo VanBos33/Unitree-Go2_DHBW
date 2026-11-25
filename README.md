@@ -46,6 +46,8 @@ DHBW Stuttgart, Campus Horb · Teamprojekt Robotertechnik · Stand: **23.11.2026
 | Rückwärts-Recovery („BackUp“) bei Wandkontakt | ✅ |
 | Ziel auf der Karte setzen → hinlaufen → ausrichten → **hinsetzen** → beim nächsten Ziel aufstehen | ✅ getestet am 23.11.2026 |
 | Kamera-Livestream mit Tür-/Fenstererkennung im Browser | ✅ |
+| Feste Fenster-Punkte speichern und anfahren (`go2 punkt speichern`, `go2 fahre`) | ✅ gebaut 23.11.2026 |
+| Kamera-Fenster am Mac: Fenster-Scan startet automatisch, sobald der Hund sitzt | ✅ gebaut 23.11.2026 |
 | Dashboard-Demo (simuliert) für Mac, iPad, iPhone | ✅ |
 | Dashboard mit Live-Daten vom Hund | 🔜 geplant |
 | Hindernisse oberhalb von 40 cm (Tischkanten) | ⚠️ werden vom Scan nicht erfasst |
@@ -182,7 +184,8 @@ source install/setup.bash
 Alle Programme laufen auf dem Pi in **einer tmux-Sitzung** mit Tabs. Am Mac gibt es dafür nur **ein Fenster**.
 
 - **Mac:** Doppelklick auf `Go2.command` auf dem Schreibtisch. Das verbindet, startet alles (falls nötig) und zeigt die Sitzung. Unten in der Tab-Leiste klickt man zwischen `0:Status`, `1:Bridge`, `2:Sport`, `3:cmd_vel`, `4:Nav2`, `5:Foxglove`, `6:Mission`, `7:Kamera` und `8:Befehle` hin und her.
-- **Mac:** Doppelklick auf `Go2 Stopp.command` beendet alles.
+- **Mac:** `Go2` öffnet automatisch auch das Kamera-Fenster `Go2 Kamera` (Abschnitt 9).
+- **Mac:** Doppelklick auf `Go2 Stopp.command` beendet alles und schließt das Kamera-Fenster.
 - **Pi (z. B. im Tab `8:Befehle`):**
 
 | Befehl | Wirkung |
@@ -195,6 +198,9 @@ Alle Programme laufen auf dem Pi in **einer tmux-Sitzung** mit Tabs. Am Mac gibt
 | `go2 reset` | nach dem Setzen der Startpose: Costmaps leeren |
 | `go2 abbruch` | laufende Fahrt abbrechen |
 | `go2 sitz` / `go2 steh` | Hund von Hand hinsetzen / aufstehen lassen |
+| `go2 punkt speichern fenster_1` | aktuelle Position + Blickrichtung als Punkt speichern |
+| `go2 punkte` | gespeicherte Punkte anzeigen |
+| `go2 fahre fenster_1` | Punkt anfahren, ausrichten, hinsetzen, Fenster prüfen |
 | `go2 oeffnen` | in die Sitzung zurückkehren |
 
 Schließt man das Mac-Fenster oder bricht Tailscale ab, **läuft auf dem Pi alles weiter**. Mit **Strg+b, dann d** verlässt man die Sitzung absichtlich, ohne etwas zu beenden. Weil die Maus in tmux aktiv ist, markiert man Text im Mac-Terminal mit gedrückter **fn-Taste**.
@@ -292,21 +298,39 @@ Eine neue Karte für Nav2 nutzen: `ros2 launch ~/unitree_ws/src/go2_bridge/go2_n
 
 ## 9. Kamera und Fenstererkennung
 
-```bash
-cd ~/unitree_ws/src/yolo_zeugs
-python3 go2_tuer_stream.py auto
+**Ablauf im Betrieb:**
+
+```
+go2 fahre fenster_1 ──> Mission: aufstehen → hinlaufen → ausrichten → SITZEN
+                                                                  │
+Mac-Fenster „Go2 Kamera“ (immer offen): Video ── sieht SITTING ──> YOLO an (nur Fenster)
+          Kopfzeile: „FENSTER: ZU“ (grün) bzw. „FENSTER: OFFEN“ (rot), wenn 2 s stabil
+          Ergebnis zurück an den Pi → Topic /window_status (für das Dashboard)
+nächstes Ziel ──> Mission: aufstehen ──> Mac: KI aus, nur Video
 ```
 
-Browser am Mac: **http://100.121.161.1:8080**. Immer `auto` verwenden, nicht `eth0` (sonst Absturz „buffer overflow“). Einzelheiten, Klassen und Modelle: [`src/yolo_zeugs/README.md`](src/yolo_zeugs/README.md)
+- **Pi:** Tab `7:Kamera` sendet nur Video (`go2_tuer_stream.py auto --ohne-ki`). Immer `auto` verwenden, nicht `eth0`.
+- **Mac:** `Go2 Kamera` öffnet sich automatisch mit `Go2` (`~/Downloads/go2_mac_fenster.py`, KI auf dem M3).
+- **Fenster-Punkte anlegen:** Hund per Fernbedienung ca. 1–1,5 m vor das Fenster stellen und darauf ausrichten, dann `go2 punkt speichern fenster_1`. Anfahren mit `go2 fahre fenster_1`, Liste mit `go2 punkte`.
+- Ohne Mac geht auch die Variante mit KI auf dem Pi (`python3 go2_tuer_stream.py auto`, Browser `http://100.121.161.1:8080`). Sie ist allerdings deutlich langsamer.
+
+Einzelheiten, Klassen und Modelle: [`src/yolo_zeugs/README.md`](src/yolo_zeugs/README.md)
 
 ---
 
 ## 10. Dashboard (HMI)
 
-Das Dashboard liegt nicht im Repo, sondern auf dem MacBook (`go2_dashboard_demo.html`).
+Eine Webseite für alles: Karte mit Hund, Ziele, Steuern, Kamera und Zustand. Läuft im Browser am Mac, Foxglove bleibt parallel nutzbar.
 
-- **Demo (fertig, simuliert):** Karte mit SLAM-Aufdeckung, Ziele und Wegpunkte per Rechtsklick, Navigation mit A*-Planer, Kamera-Ansicht mit Tür-/Fensterrahmen, Joystick + WASD-Steuerung, Not-Aus (Leertaste), Sport-API-Befehle (Aufstehen, Sitz, Platz, Balance …), Systemwerte, Ansichten für Mac, iPad und iPhone, Dark Mode.
-- **Live-Version (geplant):** gleiches Design, echte Daten über rosbridge (roslib.js), Kamera-Stream, Ziele über `/mission_goal`, Nav2-Aktionen. Echtzeit und Sicherheit (Steuer-Nodes, Not-Aus, Nav2) bleiben auf dem Pi.
+- **Öffnen:** `http://100.121.161.1:8082` (startet mit `go2 start` im Tab `9:Dashboard`).
+- **Dateien:** `src/go2_bridge/go2_dashboard_server.py` (Server auf dem Pi) und `src/go2_bridge/dashboard/go2_dashboard.html` (Seite). Die Seite ist die weiterentwickelte Demo `go2_dashboard_demo.html`.
+- **Zwei Modi** (oben „Verbindung“ anklicken):
+  - **Simulation:** die Demo im Browser (Labor, Klassenzimmer, simulierter Hund). Braucht weder Pi noch Hund.
+  - **Live:** echte Karte `raum3`, Position und Blickrichtung des Hundes (TF `map → base_link`), Nav2-Pfad, Lidar-Punkte, gespeicherte Fenster-Punkte mit Ergebnis (grün = zu, rot = offen), Kamerabild, Pi-CPU/RAM/Temperatur/Drosselung, Programmstatus.
+- **Bedienung live:** Rechtsklick auf die Karte → „Ziel hier“ (dann Blickrichtung zeigen und klicken), „Hund steht hier (Startpose)“, „Mein Standort hier“ (für „Call“); Punkte in der Liste anklicken = anfahren; „Punkt +“ speichert die aktuelle Position; WASD/Q/E steuert (max. 0,35 m/s, Totmann 0,5 s, bricht eine laufende Fahrt ab); Leertaste = NOT-AUS, Esc = Fahrt abbrechen; Aufstehen/Sitz.
+- **Ohne Hund testen:** `python3 src/go2_bridge/go2_dashboard_server.py --simulation` → `http://localhost:8082`. Der Server spielt einen Hund auf der echten Karte `raum3` vor, die Seite läuft dabei im Live-Modus.
+
+Details und Schnittstelle: [`src/go2_bridge/README.md`](src/go2_bridge/README.md), Abschnitt 10.
 
 ---
 
@@ -363,8 +387,7 @@ git push
 1. Lokalisierung robuster machen: Startpose sorgfältig setzen, bei Bedarf `xy_goal_tolerance` auf 0,40 m erhöhen.
 2. Kollisionsschutz: Höhenband des Scans auf ~0,60 m erweitern, Höchstgeschwindigkeit auf 0,25 m/s senken, Collision Monitor mit kleiner Zone wieder aktivieren.
 3. `controller_frequency` von 10 auf 8 Hz senken (der Pi schafft knapp 9,6 Hz).
-4. Benannte Orte (z. B. „Fenster“, „Tafel“) als feste Ziele hinterlegen.
-5. Fenstererkennung an die Mission koppeln: Nach dem Hinsetzen am Fenster ein Bild auswerten und den Zustand melden.
-6. Dashboard-Live-Version über rosbridge.
-7. Steuer-Topic `/mission_cmd` (sit, stand, cancel), damit sich der Hund ohne Terminal bedienen lässt.
-8. Für die Vorführung: `go2 start` per systemd automatisch beim Hochfahren des Pi ausführen.
+4. Fenster-Punkte für alle Fenster im Raum anlegen und den Blickwinkel im Sitzen prüfen.
+5. Dashboard-Live-Version am Hund testen (Verzögerung beim Steuern, Kamera, Startpose über das Dashboard).
+6. Kamera: Zeitüberschreitungen des Videodienstes im Hund (Code 3104) beheben, dann Fenster-Scan am echten Fenster prüfen.
+7. Für die Vorführung: `go2 start` per systemd automatisch beim Hochfahren des Pi ausführen.

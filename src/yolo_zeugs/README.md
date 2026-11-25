@@ -14,7 +14,8 @@ cd ~/unitree_ws/src/yolo_zeugs
 
 | Datei | Zweck |
 |---|---|
-| `go2_tuer_stream.py` | Live-Stream: Go2-Frontkamera → YOLO → Browser (MJPEG über HTTP, Port 8080) |
+| `go2_tuer_stream.py` | Live-Stream: Go2-Frontkamera → (YOLO) → Browser/Mac (MJPEG über HTTP, Port 8080) |
+| `go2_mac_fenster.py` (Kopie, läuft auf dem MacBook in `~/Downloads`) | Kamera-Fenster am Mac: Video immer, Fensterprüfung mit YOLO nur, solange der Hund sitzt |
 | `go2_integration.py` | Klasse `GO2InspectionDetector`: wertet ein Bild aus und liefert einen Inspektionsbericht (Fenster- und Türstatus) |
 | `detect.py` | Minimalbeispiel: YOLO auf einer USB-/CSI-Kamera (`cv2.VideoCapture(0)`), Anzeige im Fenster, Ende mit `q` |
 | `test_headless.py` | Test ohne Bildschirm: wertet `IMG_1944.JPEG` aus, speichert `output_result.jpg` |
@@ -85,6 +86,10 @@ Beispiel für den Pi: `python3 go2_tuer_stream.py auto --model best.onnx --imgsz
 | `--ohne-ki` | nur Video senden, keine Erkennung auf dem Pi |
 | `/stream` | Videostream mit Rahmen |
 | `/roh` | Videostream ohne Rahmen, z. B. für eine Erkennung auf dem MacBook |
+| `/roh?w=640&q=60` | wie `/roh`, aber auf 640 px Breite verkleinert und mit JPEG-Qualität 60 (für langsame Verbindungen über Tailscale) |
+| `/status` | JSON: Bilder pro Sekunde, Bildgröße, Zuschauer, Fehlerzähler (für das Dashboard) |
+
+Mit `--ohne-ki` reicht der Stream das JPEG der Hundekamera unverändert durch (kein Entpacken und Neupacken auf dem Pi). Nur `?w=` kleiner als 1280 rechnet auf dem Pi. Alle 5 s steht im Tab `7:Kamera`, wie viele Bilder pro Sekunde wirklich ankommen. „Code 3104“ heißt: Zeitüberschreitung, der Videodienst im Hund antwortet nicht (nicht das LAN-Kabel).
 
 Mit der erweiterten Fassung: `python3 go2_tuer_stream.py auto --model best.onnx --frames 2`
 
@@ -95,7 +100,41 @@ Mit der erweiterten Fassung: `python3 go2_tuer_stream.py auto --model best.onnx 
 
 ---
 
-## 4. Inspektion eines Bildes: `go2_integration.py`
+## 4. Kamera-Fenster am Mac mit automatischem Fenster-Scan: `go2_mac_fenster.py`
+
+Das Fenster ist immer offen. Es zeigt das Video vom Pi (`/roh`) und fragt alle 0,5 s den Zustand der Mission ab (`http://100.121.161.1:8081/state`).
+
+| Mission | Anzeige im Fenster | KI |
+|---|---|---|
+| läuft, richtet sich aus, steht auf | „Hund laeuft zu fenster_1 – KI aus“ | aus |
+| `SITTING` | „Hund SITZT an fenster_1 – Fenster-Scan aktiv“ + Ergebnis groß | YOLO auf jedem Bild, nur die Klassen `window`, `window handle horizontal`, `window handle vertical` |
+
+**Ergebnis:** Hauptfenster = größter Fensterrahmen. Liegt ein Griff darin (+15 % Rand), entscheidet der Griff: senkrecht = **ZU** (grün), waagerecht = **OFFEN** (rot). Ein Rahmen ohne Griff ergibt **UNKLAR** (orange), nichts erkannt **KEIN FENSTER IM BILD**. Gekippte Fenster gibt es in den Projekträumen nicht.
+
+**Stabilisierung:** Ein Ergebnis gilt erst, wenn es 2 s lang (mindestens 3 Bilder) gleich bleibt. Vorher steht dort „pruefe …“. Jedes neue stabile Ergebnis wird per `POST /fenster` an den Pi gemeldet und erscheint dort auf dem Topic `/window_status`.
+
+**Verbindung:** Ruckelt das Video (unter 7 FPS), fordert das Programm vom Pi ein kleineres Bild an (960 → 640 → 480 px). Läuft es 30 s flüssig, geht es wieder eine Stufe hoch. Unten im Fenster stehen Video-FPS, KI-FPS und die aktuelle Bildgröße.
+
+**Start:** Doppelklick auf `Go2 Kamera` auf dem Mac-Schreibtisch, oder automatisch mit `Go2`. Von Hand:
+
+```bash
+source ~/Downloads/go2env/bin/activate
+python ~/Downloads/go2_mac_fenster.py
+python ~/Downloads/go2_mac_fenster.py --immer-ki      # Test: KI auch, wenn der Hund nicht sitzt
+```
+
+| Option | Standard | Bedeutung |
+|---|---|---|
+| `--pi` | `100.121.161.1` | Tailscale-Adresse des Pi |
+| `--model` | `~/Downloads/best.onnx` | YOLO-Modell |
+| `--conf` | `0.35` | Mindest-Konfidenz |
+| `--imgsz` | `640` | Bildgröße für YOLO |
+| `--stabil` | `2.0` s | Zeit, bis ein Ergebnis gilt |
+| `--immer-ki` | aus | KI unabhängig vom Zustand (zum Testen) |
+
+Tasten: `q` beendet, `s` speichert einen Screenshot nach `~/Downloads`. Die Python-Umgebung `~/Downloads/go2env` enthält `ultralytics`, `onnxruntime` und `opencv-python`.
+
+## 5. Inspektion eines Bildes: `go2_integration.py`
 
 ```bash
 python3 go2_integration.py IMG_1944.JPEG best.onnx
@@ -122,7 +161,7 @@ print_inspection_report(report)
 
 ---
 
-## 5. Kurztests
+## 6. Kurztests
 
 ```bash
 python3 test_headless.py      # erkennt Objekte in IMG_1944.JPEG, speichert output_result.jpg
@@ -133,7 +172,7 @@ python3 detect.py             # nur mit Bildschirm und Kamera am Pi, Ende mit q
 
 ---
 
-## 6. Modell trainieren
+## 7. Modell trainieren
 
 Das Notebook `Train_YOLO_Models.ipynb` in der Repo-Wurzel (Google Colab, Vorlage von EJ Technology Consultants) trainiert YOLO11/YOLOv8 mit eigenen Bildern:
 
@@ -147,7 +186,7 @@ Das Notebook `Train_YOLO_Models.ipynb` in der Repo-Wurzel (Google Colab, Vorlage
 
 ---
 
-## 7. Abhängigkeiten
+## 8. Abhängigkeiten
 
 ```bash
 sudo apt install -y python3-pip python3-opencv ffmpeg libgstreamer1.0-0 v4l-utils

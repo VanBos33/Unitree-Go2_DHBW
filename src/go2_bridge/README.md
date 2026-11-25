@@ -26,7 +26,11 @@ Der Ordner ist **kein colcon-Paket**. Alle Skripte werden direkt mit `python3` b
 | `go2_cmd_vel.py` | Node | ROS-Seite der Fahr-Brücke: `/cmd_vel` → UDP `127.0.0.1:9870` |
 | `go2_sport_sender.py` | Skript | SDK-Seite der Fahr-Brücke: UDP → Unitree `SportClient` (Move, StopMove, Sit, RiseSit, BalanceStand) |
 | `go2_mission.py` | Node | Missions-Steuerung: `/mission_goal` → Nav2 → ausrichten → sitzen |
+| `go2_dashboard_server.py` | Node + Webserver | Dashboard (Port 8082): liefert die Seite aus, verbindet sie mit ROS 2 (Abschnitt 10) |
+| `dashboard/go2_dashboard.html` | Webseite | Das Dashboard (Simulation + Live) |
 | `go2_sit_test.py` | Skript | Hinsetzen/Aufstehen von Hand über den Sport-Sender |
+| `go2_punkte.py` | Skript | Feste Punkte (z. B. vor Fenstern) speichern, auflisten, löschen und anfahren |
+| `maps/raum3_punkte.yaml` | YAML | Gespeicherte Punkte (entsteht beim ersten `go2 punkt speichern`) |
 | `make_nav2_params.py` | Skript | Erzeugt `nav2_go2_params.yaml` aus den Nav2-Standardwerten der installierten Version + Go2-Anpassungen |
 | `nav2_go2_params.yaml` | YAML | **Erzeugt** von `make_nav2_params.py`, nicht von Hand ändern |
 | `go2_nav2.launch.py` | Launch | Startet `nav2_bringup` mit Karte (Standard `maps/raum3.yaml`) und `nav2_go2_params.yaml` |
@@ -184,6 +188,20 @@ Empfängt UDP auf `127.0.0.1:9870` und ruft das Unitree-SDK auf. Beim Start send
 - **Ausrichten:** Nav2 nimmt die Blickrichtung nur auf ±0,35 rad genau. Danach dreht die Mission den Hund über `/cmd_vel` auf ±0,10 rad (~6°). Nach dreimaligem Überdrehen oder 15 s wird das Ausrichten beendet.
 - **Sitzen/Aufstehen:** per UDP an den Sport-Sender, mit Quittung (Timeout 12 s).
 - **Fehlschlag:** Erreicht Nav2 das Ziel nicht (`Status 5` = abgebrochen, `Status 6` = gescheitert), bleibt der Hund stehen und die Mission geht auf `IDLE`.
+- **Zielname:** Kommt das Ziel über `/fahre` (gespeicherter Punkt), trägt es dessen Namen. Liegt ein Ziel aus Foxglove näher als 0,5 m an einem gespeicherten Punkt, bekommt es ebenfalls dessen Namen, sonst heißt es `Ziel`.
+
+**Schnittstellen für Kamera-Fenster und Dashboard:**
+
+| Weg | Inhalt |
+|---|---|
+| `GET http://100.121.161.1:8081/state` | `{"state": "SITTING", "ziel": "fenster_1", "seit": "10:42:05", "fenster": {...}}` |
+| `GET http://100.121.161.1:8081/punkte` | alle gespeicherten Punkte aus `maps/raum3_punkte.yaml` |
+| `GET http://100.121.161.1:8081/fahre?name=fenster_1` | gespeicherten Punkt anfahren (wie ein Ziel aus Foxglove) |
+| `POST http://100.121.161.1:8081/fenster` | Ergebnis der Fensterprüfung vom Mac, z. B. `{"zustand": "ZU", "sicherheit": 0.88}` |
+| Topic `/mission_state` (`std_msgs/String`, JSON) | wie `/state`, bei jeder Änderung und einmal pro Sekunde |
+| Topic `/window_status` (`std_msgs/String`, JSON) | letztes Ergebnis der Fensterprüfung, z. B. `{"zustand": "OFFEN", "sicherheit": 0.91, "ziel": "fenster_1", "zeit": "10:43:12"}` |
+
+Die HTTP-Antworten erlauben Zugriffe von anderen Seiten (`Access-Control-Allow-Origin: *`), damit das Dashboard sie später direkt im Browser abfragen kann.
 
 | Parameter | Standard | Bedeutung |
 |---|---|---|
@@ -195,6 +213,9 @@ Empfängt UDP auf `127.0.0.1:9870` und ruft das Unitree-SDK auf. Beim Start send
 | `align_max_rate` | `0.40` rad/s | maximale Drehrate beim Ausrichten |
 | `stand_settle` | `1.0` s | Wartezeit nach dem Aufstehen |
 | `ack_timeout` | `12.0` s | Wartezeit auf die Quittung des Sport-Senders |
+| `http_port` | `8081` | Port für `/state`, `/punkte`, `/fahre`, `/fenster` |
+| `punkte_datei` | `maps/raum3_punkte.yaml` | Datei mit den gespeicherten Punkten |
+| `name_radius` | `0.5` m | Foxglove-Ziel so nah an einem Punkt bekommt dessen Namen |
 
 ### 3.8 `go2_sit_test.py`
 
@@ -206,7 +227,20 @@ python3 go2_sit_test.py stand    # nur aufstehen
 
 Erwartet: `<- OK: Sit() Rückgabe 0` bzw. `<- OK: RiseSit() Rückgabe 0, BalanceStand() Rückgabe 0`. Wer den Hund von Hand hinsetzt, muss ihn vor dem nächsten Missionsziel auch von Hand aufstehen lassen.
 
-### 3.9 `reset_nav2_after_pose.sh`
+### 3.9 `go2_punkte.py` – feste Punkte
+
+```bash
+go2 punkt speichern fenster_1     # Hund steht vor dem Fenster und schaut darauf
+go2 punkte                        # Liste
+go2 fahre fenster_1               # hinlaufen, ausrichten, hinsetzen, Fenster prüfen
+go2 punkt loeschen fenster_1
+```
+
+- **Speichern:** Den Hund per Fernbedienung ca. 1–1,5 m vor das Fenster stellen und darauf ausrichten. Bridge und Nav2 müssen laufen und die Startpose muss gesetzt sein. Das Skript liest den TF `map → base_link` und schreibt `x`, `y`, `yaw_deg` und die Uhrzeit nach `maps/raum3_punkte.yaml`.
+- **Anfahren:** `go2 fahre` ruft `http://127.0.0.1:8081/fahre?name=…` der Mission auf. Dieselbe Schnittstelle nutzt später das Dashboard.
+- Mit 20–25 cm Ziel-Toleranz von Nav2 und der Feinausrichtung der Mission (±6°) steht der Hund danach auf etwa 10–20 cm genau am Punkt.
+
+### 3.10 `reset_nav2_after_pose.sh`
 
 Nach jeder neuen Startpose in Foxglove ausführen. Das Skript leert `/local_costmap` und `/global_costmap` (Geisterwände von der falschen Pose verschwinden) und prüft den Zustand des `bt_navigator`: Ist er `inactive`, wird er fortgesetzt, ist er `unconfigured`, wird Nav2 gestartet.
 
@@ -359,11 +393,12 @@ Bei LaserScan und PointCloud2 `Reliability Policy = Best Effort`, bei `/map` Dur
 | `5:Foxglove` | `ros2 launch foxglove_bridge foxglove_bridge_launch.xml` | ja | `listening` bzw. `8765` |
 | `6:Mission` | `python3 go2_mission.py` | ja | `Bereit. Ziele` |
 | `7:Kamera` | `python3 ../yolo_zeugs/go2_tuer_stream.py auto --ohne-ki` | **nein** (Unitree-SDK) | `8080` |
+| `9:Dashboard` | `python3 go2_dashboard_server.py` | ja | `Dashboard bereit` |
 | `8:Befehle` | freie Shell mit geladener `go2_env.sh` | ja | – |
 
 Die tmux-Sitzung startet mit einer **leeren Umgebung** (`env -i`). So erben Sport-Sender und Kamera keine ROS-Variablen, selbst wenn `go2 start` aus einer Shell mit geladener `go2_env.sh` aufgerufen wird.
 
-**Befehle:** `go2 start`, `go2 stop`, `go2 restart`, `go2 status`, `go2 oeffnen`, `go2 neu mission` (oder `bridge`, `sport`, `cmd_vel`, `nav2`, `foxglove`, `kamera`), `go2 reset`, `go2 abbruch`, `go2 sitz`, `go2 steh`, `go2 hilfe`.
+**Befehle:** `go2 start`, `go2 stop`, `go2 restart`, `go2 status`, `go2 oeffnen`, `go2 neu mission` (oder `bridge`, `sport`, `cmd_vel`, `nav2`, `foxglove`, `kamera`, `dashboard`), `go2 reset`, `go2 abbruch`, `go2 sitz`, `go2 steh`, `go2 punkt speichern fenster_1`, `go2 punkt loeschen fenster_1`, `go2 punkte`, `go2 fahre fenster_1`, `go2 hilfe`.
 
 **Beenden:** Erst Strg+C an das Programm, nach 15 s ohne Ende wird der ganze Prozessbaum mit `kill -9` beendet.
 
@@ -397,4 +432,51 @@ CONF
 ssh hund hostname
 ```
 
-Die Doppelklick-Dateien `Go2.command` und `Go2 Stopp.command` liegen auf dem Schreibtisch des MacBooks. Sie rufen `ssh -t hund 'bash ~/unitree_ws/src/go2_bridge/go2.sh oeffnen'` bzw. `… stop` auf. Gibt es den Kurznamen `hund` nicht, nehmen sie direkt `fynn@100.121.161.1`.
+Die Doppelklick-Dateien `Go2.command`, `Go2 Stopp.command` und `Go2 Kamera.command` liegen auf dem Schreibtisch des MacBooks. `Go2` öffnet zusätzlich automatisch das Kamera-Fenster (`~/Downloads/go2_mac_fenster.py`, siehe [`../yolo_zeugs/README.md`](../yolo_zeugs/README.md)), `Go2 Stopp` schließt es wieder. Sie rufen `ssh -t hund 'bash ~/unitree_ws/src/go2_bridge/go2.sh oeffnen'` bzw. `… stop` auf. Gibt es den Kurznamen `hund` nicht, nehmen sie direkt `fynn@100.121.161.1`.
+
+---
+
+## 10. Dashboard (`go2_dashboard_server.py` + `dashboard/go2_dashboard.html`)
+
+```
+Browser (Mac) ──HTTP + Server-Sent-Events, Port 8082──► go2_dashboard_server.py ──ROS 2──► Nav2, Mission, Hund
+              ◄──Kamerabild direkt, Port 8080 (go2_tuer_stream.py /roh)
+```
+
+Der Browser spricht kein ROS. Der Server sammelt alles und schickt dem Browser 10-mal pro Sekunde den Zustand als JSON. Große Teile (Karte, Plan, Lidar, Punkte) gehen nur, wenn sie sich geändert haben. Die Karte wird einmal über `/api/map` geladen.
+
+**Liest:** `/map` (transient local), TF `map → base_link` (Fallback `odom → base_link`, dann orange Hund-Symbol), `/plan`, `/scan`, `/amcl_pose` (Unsicherheit ±m), `/navigate_to_pose/_action/feedback` (Restweg, ETA, Recoveries), Mission `GET :8081/state`, Punkte `maps/raum3_punkte.yaml`, Kamera `GET :8080/status`, `/proc` (CPU, RAM, laufende Programme), Temperatur, `vcgencmd get_throttled`.
+
+**Schreibt:** `/mission_goal` (Ziel), `/initialpose` (Startpose), `/cmd_vel` (**nur** beim Steuern im Dashboard und beim Not-Aus), Nav2-Abbruch (`/navigate_to_pose/_action/cancel_goal`, leere Anfrage = alle Ziele), Mission `/sitz`, `/steh`, `/stopp`, `/fahre`, `{"stop": true}` an den Sport-Sender.
+
+**Sicherheit**
+
+| Fall | Verhalten |
+|---|---|
+| Steuern mit WASD | Browser sendet 10×/s. Kommt 0,5 s nichts mehr (Taste los, Tab gewechselt, WLAN weg), schickt der Server 3× Stillstand und gibt `/cmd_vel` wieder frei. |
+| Steuern während einer Fahrt | Fahrt wird abgebrochen (Mission `/stopp` + Nav2-Abbruch), dann gilt die Tastatur. |
+| Hund sitzt | Fahrbefehle werden abgelehnt („erst Aufstehen“). |
+| NOT-AUS (Leertaste/Knopf) | Fahrt abbrechen, StopMove, solange aktiv 10×/s Stillstand auf `/cmd_vel`, keine Ziele. „FREIGEBEN“ hebt ihn auf. |
+| Grenzen | vx −0,15 … 0,35 m/s, Drehung ±0,40 rad/s (wie `go2_cmd_vel.py`); kein Seitwärtslaufen. |
+
+**HTTP-Schnittstelle**
+
+| Methode + Pfad | Inhalt |
+|---|---|
+| `GET /` | Dashboard-Seite |
+| `GET /api/stream` | Server-Sent-Events, Zustand 10×/s |
+| `GET /api/state` | Zustand einmalig (zum Testen: `curl http://100.121.161.1:8082/api/state`) |
+| `GET /api/map` | Karte: Breite, Höhe, Auflösung, Ursprung, Daten (base64, 0 frei, 100 Wand, 255 unbekannt) |
+| `POST /api/ziel` | `{"x", "y", "yaw"}` im Frame `map` |
+| `POST /api/fahre` | `{"name": "fenster_1"}` |
+| `POST /api/fahren` | `{"vx", "wz"}` Tastatursteuerung |
+| `POST /api/abbruch` | Fahrt abbrechen |
+| `POST /api/notaus` | `{"an": true}` / `{"an": false}` |
+| `POST /api/sitz`, `/api/steh` | über die Mission |
+| `POST /api/punkt` | `{"name"}` aktuelle Position + Blickrichtung speichern |
+| `POST /api/punkt_loeschen` | `{"name"}` |
+| `POST /api/startpose` | `{"x", "y", "yaw"}` → `/initialpose` |
+
+**Ohne Pi und Hund testen:** `python3 go2_dashboard_server.py --simulation` (braucht kein ROS) startet einen simulierten Hund auf `maps/raum3.yaml` mit simulierter Mission (Hinlaufen, Ausrichten, Sitzen, Fenster-Ergebnis). Dann `http://localhost:8082`.
+
+**Seite ohne Server öffnen:** `dashboard/go2_dashboard.html` per Doppelklick öffnet die reine Simulation. Mit `?pi=100.121.161.1` hinten an der Adresse verbindet sie sich live mit dem Pi.
