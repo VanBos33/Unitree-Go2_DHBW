@@ -17,15 +17,20 @@ Start auf dem Pi:
     python3 go2_tuer_stream.py auto --ohne-ki      # nur Video (KI läuft dann auf dem Mac)
 Browser am Mac:
     http://100.121.161.1:8080          Seite mit Video
-    http://100.121.161.1:8080/roh      rohes Kamerabild (für go2_mac_erkennung.py)
+    http://100.121.161.1:8080/roh      rohes Kamerabild (für go2_mac_fenster.py)
+    http://100.121.161.1:8080/roh?w=640&q=60   verkleinert/stärker komprimiert (langsames Netz)
+    http://100.121.161.1:8080/status   Bilder/s, Bildgröße, Fehler (für das Dashboard)
+Mit --ohne-ki wird das JPEG der Hundekamera unverändert durchgereicht (kein Umrechnen, spart CPU).
 
 Optionen: --model best.onnx  --conf 0.35  --frames 2  --imgsz 640  --port 8080  --test (USB-Kamera)
 Beenden: control + C
 """
 
 import argparse
+import json
 import threading
 import time
+from urllib.parse import parse_qs, urlparse
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -44,6 +49,9 @@ zaehler = {"offen": 0, "zu": 0}
 ki_fps, cam_fps = 0.0, 0.0
 fertig_jpeg = None             # Bild mit Rahmen
 roh_jpeg = None                # Bild ohne Rahmen
+orig_jpeg, orig_id = None, 0   # JPEG genau so, wie es von der Hundekamera kommt (ohne Umkodieren)
+OHNE_KI = False                # --ohne-ki: Bilder werden auf dem Pi gar nicht erst dekodiert
+statistik = {"bilder": 0, "fps": 0.0, "clients": 0, "fehler": 0, "letzter_fehler": ""}
 status = "Starte ..."
 stop = threading.Event()
 
@@ -73,15 +81,52 @@ def kamera_go2(interface: str):
         code, data = client.GetImageSample()
         if code != 0:
             fehler += 1
-            status = f"Keine Kamera-Daten (Code {code}) - LAN-Kabel pruefen"
+            statistik["fehler"] += 1
+            statistik["letzter_fehler"] = f"Code {code}"
+            status = (f"Keine Kamera-Daten (Code {code}" +
+                      (" = Zeitüberschreitung: Videodienst im Hund antwortet nicht" if code == 3104 else "") + ")")
             if fehler % 10 == 1:
                 print(status)
             time.sleep(0.3)
             continue
         fehler = 0
-        img = cv2.imdecode(np.frombuffer(bytes(data), dtype=np.uint8), cv2.IMREAD_COLOR)
-        if img is not None:
-            neues_bild(img)
+        neues_jpeg(bytes(data))
+
+
+def neues_jpeg(jpg):
+    """Kamera-JPEG merken. Ohne KI wird es NICHT dekodiert/neu kodiert (spart viel CPU auf dem Pi)."""
+    global orig_jpeg, orig_id, roh_jpeg, fertig_jpeg, status
+    with lock:
+        orig_jpeg, orig_id = jpg, orig_id + 1
+    statistik["bilder"] += 1
+    if OHNE_KI:
+        roh_jpeg = fertig_jpeg = jpg
+        status = "Läuft"
+        return
+    img = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img is not None:
+        neues_bild(img)
+
+
+def roh_dekodiert():
+    """-> (bild, id) des neuesten Kamerabilds; dekodiert bei Bedarf aus dem Original-JPEG."""
+    with lock:
+        if roh_bild is not None and not OHNE_KI:
+            return roh_bild, roh_id
+        jpg, nr = orig_jpeg, orig_id
+    if jpg is None:
+        return None, nr
+    return cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR), nr
+
+
+def statistik_ausgeben():
+    """Alle 5 s eine Zeile im Terminal (Tab 7:Kamera): wie viele Bilder kommen wirklich an?"""
+    while not stop.is_set():
+        stop.wait(5.0)
+        n, statistik["bilder"] = statistik["bilder"], 0
+        statistik["fps"] = round(n / 5.0, 1)
+        print(time.strftime("%H:%M:%S"), f"Kamera {n / 5.0:4.1f} Bilder/s | "
+              f"Bildgroesse {len(orig_jpeg or b'') // 1024} KB | Zuschauer {statistik['clients']}", flush=True)
 
 
 def kamera_usb(index: int = 0):
@@ -233,6 +278,13 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _mjpeg(self, quelle):
+        statistik["clients"] += 1
+        try:
+            self._mjpeg_senden(quelle)
+        finally:
+            statistik["clients"] -= 1
+
+    def _mjpeg_senden(self, quelle):
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-cache")
@@ -249,11 +301,46 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def _mjpeg_angepasst(self, breite, qualitaet):
+        """Rohbild pro Client verkleinern/komprimieren (für langsame Verbindungen über Tailscale)."""
+        cache = {"id": -1, "jpg": None}
+
+        def quelle():
+            with lock:
+                nr = orig_id
+            if nr == cache["id"]:
+                return cache["jpg"]
+            img, cache["id"] = roh_dekodiert()
+            if img is None:
+                return cache["jpg"]
+            h, w = img.shape[:2]
+            if breite and w > breite:
+                img = cv2.resize(img, (breite, int(h * breite / w)), interpolation=cv2.INTER_AREA)
+            cache["jpg"] = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, qualitaet])[1].tobytes()
+            return cache["jpg"]
+        self._mjpeg(quelle)
+
     def do_GET(self):
-        if self.path.startswith("/stream"):
+        if self.path.startswith("/status"):           # für das Dashboard
+            body = json.dumps({"fps": statistik["fps"], "kb": len(orig_jpeg or b"") // 1024,
+                               "zuschauer": statistik["clients"], "fehler": statistik["fehler"],
+                               "letzter_fehler": statistik["letzter_fehler"], "status": status}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/stream"):
             self._mjpeg(lambda: fertig_jpeg)
         elif self.path.startswith("/roh"):
-            self._mjpeg(lambda: roh_jpeg)
+            q = parse_qs(urlparse(self.path).query)
+            breite = int(q.get("w", ["0"])[0] or 0)
+            qualitaet = max(20, min(95, int(q.get("q", ["80"])[0] or 80)))
+            if 0 < breite < 1280:                       # nur echtes Verkleinern kostet Rechenzeit
+                self._mjpeg_angepasst(breite, qualitaet)
+            else:                                       # Original-JPEG der Kamera durchreichen
+                self._mjpeg(lambda: orig_jpeg if OHNE_KI else roh_jpeg)
         else:
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -272,10 +359,14 @@ def main():
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--port", type=int, default=8080)
     args = p.parse_args()
+    global OHNE_KI
+    OHNE_KI = args.ohne_ki and not args.test
 
     quelle = (lambda: kamera_usb(0)) if args.test else (lambda: kamera_go2(args.interface))
     threading.Thread(target=quelle, daemon=True).start()
-    threading.Thread(target=darstellung, args=(args,), daemon=True).start()
+    if not OHNE_KI:
+        threading.Thread(target=darstellung, args=(args,), daemon=True).start()
+    threading.Thread(target=statistik_ausgeben, daemon=True).start()
     if not args.ohne_ki:
         threading.Thread(target=erkennung, args=(args,), daemon=True).start()
 

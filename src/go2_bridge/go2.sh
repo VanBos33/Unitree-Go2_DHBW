@@ -9,11 +9,17 @@
 #  go2 stop           alles sauber beenden (hängende Programme werden erzwungen)
 #  go2 restart        stop + start (z. B. nachdem der Hund aus war)
 #  go2 neu <teil>     ein Programm neu starten (bridge, sport, cmd_vel, nav2,
-#                     foxglove, mission, kamera)
+#                     foxglove, mission, kamera, dashboard)
 #  go2 reset          nach dem Setzen der Startpose: Costmaps leeren
 #  go2 abbruch        laufende Fahrt abbrechen
 #  go2 sitz / steh    Hund von Hand hinsetzen / aufstehen lassen
+#  go2 punkt speichern fenster_1   aktuelle Position + Blickrichtung als Punkt speichern
+#  go2 punkt loeschen fenster_1    Punkt entfernen
+#  go2 punkte         gespeicherte Punkte anzeigen
+#  go2 fahre fenster_1             Punkt anfahren, ausrichten, hinsetzen (+ Kamera-KI am Mac)
 #  go2 hilfe          diese Hilfe
+#
+#  Dashboard im Browser am Mac:  http://100.121.161.1:8082   (Tab 9:Dashboard)
 #
 #  In der Sitzung: unten auf die Tabs klicken. Fenster schließen/ssh weg ->
 #  alles läuft auf dem Pi weiter; "go2 oeffnen" bringt dich zurück.
@@ -28,9 +34,9 @@ ENV_SH="$BR/go2_env.sh"
 SELF="$BR/go2.sh"
 
 # --- Programme: Name | braucht go2_env.sh | Ordner | Befehl | "fertig"-Muster | Zeitlimit (s)
-NAMEN=(Bridge Sport cmd_vel Nav2 Foxglove Mission Kamera)
-declare -A MIT_ENV=(  [Bridge]=1 [Sport]=0 [cmd_vel]=1 [Nav2]=1 [Foxglove]=1 [Mission]=1 [Kamera]=0 )
-declare -A ORDNER=(   [Bridge]="$BR" [Sport]="$BR" [cmd_vel]="$BR" [Nav2]="$BR" [Foxglove]="$BR" [Mission]="$BR" [Kamera]="$YOLO" )
+NAMEN=(Bridge Sport cmd_vel Nav2 Foxglove Mission Kamera Dashboard)
+declare -A MIT_ENV=(  [Bridge]=1 [Sport]=0 [cmd_vel]=1 [Nav2]=1 [Foxglove]=1 [Mission]=1 [Kamera]=0 [Dashboard]=1 )
+declare -A ORDNER=(   [Bridge]="$BR" [Sport]="$BR" [cmd_vel]="$BR" [Nav2]="$BR" [Foxglove]="$BR" [Mission]="$BR" [Kamera]="$YOLO" [Dashboard]="$BR" )
 declare -A BEFEHL=(
   [Bridge]="ros2 launch $BR/go2_bridge.launch.py accum_window:=0.25"
   [Sport]="python3 $BR/go2_sport_sender.py"
@@ -39,6 +45,7 @@ declare -A BEFEHL=(
   [Foxglove]="ros2 launch foxglove_bridge foxglove_bridge_launch.xml"
   [Mission]="python3 $BR/go2_mission.py"
   [Kamera]="python3 $YOLO/go2_tuer_stream.py auto --ohne-ki"
+  [Dashboard]="python3 $BR/go2_dashboard_server.py"
 )
 declare -A FERTIG=(
   [Bridge]="Strahlen mit Treffer"
@@ -48,13 +55,14 @@ declare -A FERTIG=(
   [Foxglove]="[Ll]istening|8765"
   [Mission]="Bereit\. Ziele"
   [Kamera]="8080"
+  [Dashboard]="Dashboard bereit"
 )
-declare -A ZEIT=( [Bridge]=40 [Sport]=30 [cmd_vel]=20 [Nav2]=120 [Foxglove]=30 [Mission]=20 [Kamera]=40 )
+declare -A ZEIT=( [Bridge]=40 [Sport]=30 [cmd_vel]=20 [Nav2]=120 [Foxglove]=30 [Mission]=20 [Kamera]=40 [Dashboard]=30 )
 # Sport-Sender und Kamera nutzen das Unitree-SDK -> NIEMALS mit go2_env.sh (CycloneDDS-Konflikt)
 
 GRUEN=$'\e[32m'; ROT=$'\e[31m'; GELB=$'\e[33m'; FETT=$'\e[1m'; AUS=$'\e[0m'
 
-hilfe() { sed -n '3,20p' "$SELF" | sed 's/^#  \{0,1\}//; s/^#$//'; }
+hilfe() { awk 'NR>2 && /^# ====/ {exit} NR>2' "$SELF" | sed 's/^#  \{0,1\}//; s/^#$//'; }
 
 sitzung_da() { tmux has-session -t "$SESSION" 2>/dev/null; }
 
@@ -84,7 +92,8 @@ pane_pid()   { tmux display-message -p -t "$SESSION:$1" '#{pane_pid}' 2>/dev/nul
 laeuft()     { local p; p=$(pane_pid "$1") || return 1; [ -n "$p" ] && pgrep -P "$p" >/dev/null 2>&1; }
 ausgabe()    { tmux capture-pane -p -J -S -3000 -t "$SESSION:$1" 2>/dev/null; }
 
-nummer() { local i=1; for n in "${NAMEN[@]}"; do [ "$n" = "$1" ] && { echo $i; return; }; i=$((i+1)); done; }
+nummer() { [ "$1" = Dashboard ] && { echo 9; return; }   # Tab 8 bleibt "Befehle"
+  local i=1; for n in "${NAMEN[@]}"; do [ "$n" = "$1" ] && { echo $i; return; }; i=$((i+1)); done; }
 
 fenster_anlegen() {
   local name=$1 nr; nr=$(nummer "$name")
@@ -161,7 +170,8 @@ cmd_start() {
   befehle_fenster
   tmux select-window -t "$SESSION:Status"
   echo
-  echo "Fertig. Foxglove: Startpose setzen, dann ${FETT}go2 reset${AUS}, dann Ziel auf /mission_goal."
+  echo "Fertig. Dashboard: ${FETT}http://100.121.161.1:8082${AUS} (oder Foxglove)."
+  echo "Startpose setzen (Dashboard: Rechtsklick → „Hund steht hier“), dann ${FETT}go2 reset${AUS}, dann Ziel."
 }
 
 cmd_stop() {
@@ -193,6 +203,7 @@ cmd_status() {
       Nav2)    echo "$out" | grep -q "Managed nodes are active" && info="aktiv" ;;
       Mission) info=$(echo "$out" | grep -o '\-> \[[A-Z_]*\]' | tail -1 | tr -d '[]>-' | xargs) ;;
       Kamera)  info="http://100.121.161.1:8080" ;;
+      Dashboard) info="http://100.121.161.1:8082" ;;
     esac
     if laeuft "$n"; then printf '  %-10s %s✅ läuft%s  %s\n' "$n" "$GRUEN" "$AUS" "$info"
     else printf '  %-10s %s❌ gestoppt%s  (Tab %s ansehen)\n' "$n" "$ROT" "$AUS" "$n"; fi
@@ -227,8 +238,20 @@ case "${1:-hilfe}" in
   neu)      cmd_neu "$2" ;;
   reset)    bash "$BR/reset_nav2_after_pose.sh" ;;
   abbruch)  ros_env; ros2 service call /navigate_to_pose/_action/cancel_goal action_msgs/srv/CancelGoal "{}" ;;
-  sitz)     python3 "$BR/go2_sit_test.py" sit ;;
-  steh)     python3 "$BR/go2_sit_test.py" stand ;;
+  sitz|steh) # über die Mission (dann weiß sie Bescheid und die Kamera-KI startet), sonst direkt
+            if python3 -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8081/$1', timeout=2)" 2>/dev/null; then
+              echo "✅ $1 – über die Mission (Tab 6:Mission)"
+            else
+              echo "Mission nicht erreichbar – direkt an den Sport-Sender"
+              python3 "$BR/go2_sit_test.py" "$([ "$1" = sitz ] && echo sit || echo stand)"
+            fi ;;
+  punkt)    case "$2" in
+              speichern) ros_env; python3 "$BR/go2_punkte.py" speichern "$3" ;;
+              loeschen)  python3 "$BR/go2_punkte.py" loeschen "$3" ;;
+              *) echo "go2 punkt speichern NAME  |  go2 punkt loeschen NAME"; exit 1 ;;
+            esac ;;
+  punkte)   python3 "$BR/go2_punkte.py" liste ;;
+  fahre)    python3 "$BR/go2_punkte.py" fahre "$2" ;;
   hilfe|-h|--help) hilfe ;;
   *) echo "Unbekannter Befehl: $1"; hilfe; exit 1 ;;
 esac
