@@ -6,7 +6,7 @@ log/
 __pycache__/
 *.pyc
 
-# YOLO-Modelle bleiben lokal (per scp kopieren, siehe src/yolo_zeugs/README.md)
+# YOLO-Modelle bleiben lokal (per scp kopieren, siehe README.md, Abschnitt 4.2)
 *.onnx
 *.pt
 
