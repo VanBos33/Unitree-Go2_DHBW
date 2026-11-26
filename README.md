@@ -1105,22 +1105,3 @@ git push
 | Sport-Sender: `Aktion 'stand': FEHLER (RiseSit() Rückgabe -1 …)` | Alte Version: Der Hund stand schon. Seit 23.11. wird das als Erfolg gewertet. |
 | Programm reagiert nicht auf control + C | Aus einem freien Fenster zwangsweise beenden, z. B. `pkill -9 -f go2_cmd_vel.py`. |
 | `Address already in use` (Kamera) | Alter Stream läuft noch: `pkill -f go2_tuer_stream.py`. |
-
----
-
-## 16. Projektstand und nächste Schritte
-
-**Erreicht (Stand 26.11.2026):** Netzwerk und Fernzugriff, Hardware-Brücke, Karten `raum1`–`raum3`, Nav2 am echten Hund, Rückwärts-Recovery, Missions-Ablauf „Ziel → hinlaufen → ausrichten → sitzen → Fenster prüfen“, feste Fenster-Punkte, Kamera-Stream (Original-JPEG durchgereicht), Fenster-Scan am Mac mit YOLO und Qwen3-VL, Dashboard live und als Simulation.
-
-**Nächste Schritte:**
-
-1. Lokalisierung robuster machen: Startpose sorgfältig setzen, bei Bedarf `xy_goal_tolerance` auf 0,40 m erhöhen.
-2. Kollisionsschutz: Höhenband des Scans auf ~0,60 m erweitern, Höchstgeschwindigkeit auf 0,25 m/s senken, Collision Monitor mit kleiner Zone wieder aktivieren.
-3. `controller_frequency` von 10 auf 8 Hz senken (der Pi schafft knapp 9,6 Hz).
-4. Fenster-Punkte für alle Fenster im Raum anlegen und den Blickwinkel im Sitzen prüfen.
-5. YOLO-Modell mit Bildern aus Sitzhöhe nachtrainieren (Griffe werden schräg von unten oft nicht erkannt, dann entscheidet Qwen).
-6. Kamera: Code 3104 (Zeitüberschreitung des Videodienstes im Hund) tritt auf, wenn die Kameraansicht der Unitree-App gleichzeitig offen ist. App-Kamera schließen, Hund ggf. neu starten.
-7. Für die Vorführung: `go2 start` per systemd automatisch beim Hochfahren des Pi ausführen.
-8. Hindernissperre beim manuellen Fahren im Dashboard (Vorwärts sperren, wenn der Scan vor dem Hund < 0,4 m meldet). Aktuell gibt es beim manuellen Fahren keinen Kollisionsschutz.
-9. Roboflow-API-Schlüssel aus `Train_YOLO_Models.ipynb` entfernen und in Roboflow neu erzeugen (das Repo ist öffentlich).
-10. `go2_mac_fenster.py` und die `.command`-Dateien ins Repo aufnehmen (z. B. `src/mac/`).
